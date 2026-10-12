@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 # I truncated at 100 genes because it was taking too long for python to go through all the genes
 data_mrna_seq_zscores = pd.read_excel(
     'data_mrna_seq_v2_rsem_zscores_ref_all_samples_6006_project.xlsx',
-    nrows=102
+    #nrows=102
 )
 
 
@@ -62,6 +62,39 @@ data_matrix = mrna_seq_final.drop(
 
 # Remove any gene that contains a NaN value
 data_matrix = data_matrix.dropna(axis=1)
+
+data_matrix = data_matrix.loc[:, ~data_matrix.columns.duplicated()]
+
+#Calculate the variance of each gene across all patients
+#axis=0 calculates variance down each column (across patients)
+gene_variance = data_matrix.var(axis=0)
+
+#Select the 2000 genes with the highest variance
+top_2000_variable_genes = gene_variance.nlargest(min(6000, len(gene_variance))).index
+
+#Create a new matrix containing only the most variable genes
+data_matrix_top2000 = data_matrix[top_2000_variable_genes]
+
+print("Number of patients:", data_matrix_top2000.shape[0])
+print("Number of genes selected:", data_matrix_top2000.shape[1])
+print("Highest gene variance:", gene_variance.loc[top_2000_variable_genes].max())
+print("Lowest variance among selected genes:", gene_variance.loc[top_2000_variable_genes].min())
+
+# Create a clustered heatmap using the gene-expression data
+cluster1 = sns.clustermap(
+    data_matrix_top2000,
+    cmap='bwr', # Use a blue-white-red color scale for the gene-expression values
+    center=0,  # Center the color scale at 0 because the data are z-scores
+    figsize=(40, 30), # Set the size of the heatmap
+    metric='euclidean', # Use Euclidean distance to measure differences between samples/genes
+    method='complete',  # Use complete linkage to determine how clusters are formed
+    row_cluster=True,  # Cluster the samples (rows)
+    col_cluster=True, # Cluster the genes (columns)
+    yticklabels=row_labels # Label each row with its Sample ID and Cancer Type
+)
+
+# display the heatmap
+plt.show()
 
 # Create a clustered heatmap using the gene-expression data
 cluster1 = sns.clustermap(

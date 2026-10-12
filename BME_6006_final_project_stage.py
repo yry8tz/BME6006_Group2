@@ -28,7 +28,7 @@ data_clinical_patient = data_clinical_patient[
 # I truncated at 100 genes because it was taking too long for python to go through all the genes
 data_mrna_seq_zscores = pd.read_excel(
     'data_mrna_seq_v2_rsem_zscores_ref_all_samples_6006_project.xlsx',
-    nrows=501
+    #nrows=200
 )
 
 
@@ -80,20 +80,6 @@ cols.insert(0, cols.pop(cols.index('Stage')))
 ## Reorder the dataframe using the new column order where its Cancer Type Detailed then Sample ID then all of the genes
 mrna_seq_final = mrna_seq_final[cols]
 
-'''
-## filter out the specific cancer types I want to analyze ##
-#I did this because having all types was way too much data to reasonably analyze for this
-#I thought it'd be interesting to see mRNA changes for the same camcer type across different organs
-pancan_mrna_filtered = pancan_mrna_final[
-    pancan_mrna_final['Cancer Type Detailed'].isin([
-        'Pancreatic Adenocarcinoma',
-        'Prostate Adenocarcinoma',
-        'Colorectal Adenocarcinoma'
-    ])
-]
-'''
-
-
 #%% Create clustered heatmap
 
 # Create row labels containing Sample ID and Cancer Type so each sample can be identified on the heatmap
@@ -111,12 +97,17 @@ data_matrix = mrna_seq_final.drop(
 # Remove any gene that contains a NaN value
 data_matrix = data_matrix.dropna(axis=1)
 
+data_matrix = data_matrix.loc[:, ~data_matrix.columns.duplicated()]
+
+print("Number of patients:", data_matrix.shape[0])
+print("Number of genes:", data_matrix.shape[1])
+
 # Create a clustered heatmap using the gene-expression data
 cluster1 = sns.clustermap(
     data_matrix,
     cmap='bwr', # Use a blue-white-red color scale for the gene-expression values
     center=0,  # Center the color scale at 0 because the data are z-scores
-    figsize=(20, 20), # Set the size of the heatmap
+    figsize=(40, 30), # Set the size of the heatmap
     metric='euclidean', # Use Euclidean distance to measure differences between samples/genes
     method='complete',  # Use complete linkage to determine how clusters are formed
     row_cluster=True,  # Cluster the samples (rows)
@@ -126,6 +117,34 @@ cluster1 = sns.clustermap(
 
 # display the heatmap
 plt.show()
+
+#Calculate the variance of each gene across all patients
+#axis=0 calculates variance down each column (across patients)
+gene_variance = data_matrix.var(axis=0)
+
+#Select the 2000 genes with the highest variance
+top_2000_variable_genes = gene_variance.nlargest(min(6000, len(gene_variance))).index
+
+#Create a new matrix containing only the most variable genes
+data_matrix_top2000 = data_matrix[top_2000_variable_genes]
+
+print("Number of patients:", data_matrix_top2000.shape[0])
+print("Number of genes selected:", data_matrix_top2000.shape[1])
+print("Highest gene variance:", gene_variance.loc[top_2000_variable_genes].max())
+print("Lowest variance among selected genes:", gene_variance.loc[top_2000_variable_genes].min())
+
+# Create a clustered heatmap using the gene-expression data
+cluster1 = sns.clustermap(
+    data_matrix_top2000,
+    cmap='bwr', # Use a blue-white-red color scale for the gene-expression values
+    center=0,  # Center the color scale at 0 because the data are z-scores
+    figsize=(40, 30), # Set the size of the heatmap
+    metric='euclidean', # Use Euclidean distance to measure differences between samples/genes
+    method='complete',  # Use complete linkage to determine how clusters are formed
+    row_cluster=True,  # Cluster the samples (rows)
+    col_cluster=True, # Cluster the genes (columns)
+    yticklabels=row_labels # Label each row with its Sample ID and Cancer Type
+)
 
 #%% perform PCA
 
@@ -216,7 +235,7 @@ sns.scatterplot(
 
 plt.xlabel(f'PC1 ({explained[0]:.2f}% variance)') # Label the x-axis and show how much variance PC1 explains
 plt.ylabel(f'PC2 ({explained[1]:.2f}% variance)') # Label the y-axis and show how much variance PC2 explains
-plt.title('PCA: PC1 vs PC2')
+plt.title('Cancer Stage PCA: PC1 vs PC2')
 
 plt.legend(title='Stage') #add legend for cancer types
 plt.grid(True)
@@ -280,3 +299,47 @@ pc1_loadings_sorted = pc1_loadings.sort_values(ascending=False)
 # Print the PC1 loading scores
 print("PC1 loading scores:")
 print(pc1_loadings_sorted)
+
+# Take the absolute value of each loading score
+pc1_loadings_abs = pc1_loadings.abs()
+
+# Sort and select the 10 genes with the highest absolute loading scores
+top_10_pc1_loadings = pc1_loadings_abs.nlargest(10)
+
+# Print the top 10 genes and their absolute loading scores
+print("Top 10 genes by absolute PC1 loading score stage:")
+print(top_10_pc1_loadings)
+
+#%% PCA Coefficient plot
+# Extract variable names (signals x timepoints)
+
+#variables_genes = list(data_mrna_seq_zscores.columns[2:])
+variables_genes = list(data_matrix.columns)
+
+# PCA loadings (coefficients)
+coefficients = pca.components_.T # Transpose (variables in rows)
+# Plot PCA loadings for PC1 and PC3
+plt.figure(4,figsize=(22, 6)) # Adjust figure width as needed for 105 variables
+# Bar plot
+bar_width = 0.35
+x = np.arange(len(variables_genes))
+# Plot PC1 loadings
+plt.bar(x - bar_width/2, coefficients[:, 0], width=bar_width, label='PC1')
+# Plot PC3 loadings (Python index 2 for PC3)
+plt.bar(x + bar_width/2, coefficients[:, 1], width=bar_width, label='PC2')
+# Add horizontal reference lines at ±0.2
+plt.plot([-0.5, len(variables_genes)-0.5], [0.2, 0.2], linestyle='--',
+linewidth=2, color='k')
+plt.plot([-0.5, len(variables_genes)-0.5], [-0.2, -0.2],
+linestyle='--', linewidth=2, color='k')
+
+# Formatting
+plt.xticks(x, variables_genes, rotation=90, fontsize=8) 
+plt.ylim(-0.6, 0.6) # Set Y-axis limits
+plt.xlabel('Signals', fontsize=14)
+plt.ylabel('PCA Loadings', fontsize=14)
+plt.title('Cancer Stage PCA Loadings Plot (PC1 vs PC2)', fontsize=16)
+plt.legend(fontsize=12)
+plt.tight_layout() # Prevent overlap of x-axis labels
+# Show the plot
+plt.show()

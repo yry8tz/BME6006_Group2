@@ -26,7 +26,7 @@ data_clinical_patient = data_clinical_patient[
 # I truncated at 100 genes because it was taking too long for python to go through all the genes
 data_mrna_seq_zscores = pd.read_excel(
     'data_mrna_seq_v2_rsem_zscores_ref_all_samples_6006_project.xlsx',
-    nrows=501
+    #nrows=501
 )
 
 
@@ -71,8 +71,8 @@ mrna_seq_final = mrna_seq_final.dropna(subset=['Age'])
 # Create age groups
 mrna_seq_final['Age Group'] = pd.cut(
     mrna_seq_final['Age'],
-    bins=[39, 49, 59, 69, 79],
-    labels=['40s', '50s', '60s', '70s']
+    bins=[29, 39, 49, 59, 69, 79, 89],
+    labels=['30s', '40s', '50s', '60s', '70s', '80s']
 )
 
 # Remove patients outside of the 40s-70s age groups
@@ -106,25 +106,63 @@ row_labels = (
 data_matrix = mrna_seq_final.drop(
     columns=['Age', 'Age Group', 'Patient ID']
 )
+# Remove clinical information so clustering uses only gene-expression data
+data_matrix = mrna_seq_final.drop(
+    columns=['Stage', 'Patient ID', 'Age', 'Age Group', 'Sex', 'Smoking Status', 'Overall survival status'],
+    errors='ignore'
+)
 
 # Remove any gene that contains a NaN value
 data_matrix = data_matrix.dropna(axis=1)
+
+data_matrix = data_matrix.loc[:, ~data_matrix.columns.duplicated()]
+
+print("Number of patients:", data_matrix.shape[0])
+print("Number of genes:", data_matrix.shape[1])
 
 # Create a clustered heatmap using the gene-expression data
 cluster1 = sns.clustermap(
     data_matrix,
     cmap='bwr',
     center=0,
-    figsize=(20, 20),
+    figsize=(40, 30),
     metric='euclidean',
     method='complete',
-    row_cluster=False,
+    row_cluster=True,
     col_cluster=True,
     yticklabels=row_labels
 )
 
 # display the heatmap
 plt.show()
+
+#Calculate the variance of each gene across all patients
+#axis=0 calculates variance down each column (across patients)
+gene_variance = data_matrix.var(axis=0)
+
+#Select the 2000 genes with the highest variance
+top_2000_variable_genes = gene_variance.nlargest(min(6000, len(gene_variance))).index
+
+#Create a new matrix containing only the most variable genes
+data_matrix_top2000 = data_matrix[top_2000_variable_genes]
+
+print("Number of patients:", data_matrix_top2000.shape[0])
+print("Number of genes selected:", data_matrix_top2000.shape[1])
+print("Highest gene variance:", gene_variance.loc[top_2000_variable_genes].max())
+print("Lowest variance among selected genes:", gene_variance.loc[top_2000_variable_genes].min())
+
+# Create a clustered heatmap using the gene-expression data
+cluster1 = sns.clustermap(
+    data_matrix_top2000,
+    cmap='bwr', # Use a blue-white-red color scale for the gene-expression values
+    center=0,  # Center the color scale at 0 because the data are z-scores
+    figsize=(40, 30), # Set the size of the heatmap
+    metric='euclidean', # Use Euclidean distance to measure differences between samples/genes
+    method='complete',  # Use complete linkage to determine how clusters are formed
+    row_cluster=True,  # Cluster the samples (rows)
+    col_cluster=True, # Cluster the genes (columns)
+    yticklabels=row_labels # Label each row with its Sample ID and Cancer Type
+)
 
 #%% perform PCA
 
@@ -208,7 +246,7 @@ sns.scatterplot(
 
 plt.xlabel(f'PC1 ({explained[0]:.2f}% variance)')
 plt.ylabel(f'PC2 ({explained[1]:.2f}% variance)')
-plt.title('PCA: PC1 vs PC2')
+plt.title('Age PCA: PC1 vs PC2')
 
 plt.legend(title='Age Group')
 plt.grid(True)
@@ -271,3 +309,13 @@ pc1_loadings_sorted = pc1_loadings.sort_values(ascending=False)
 # Print the PC1 loading scores
 print("PC1 loading scores:")
 print(pc1_loadings_sorted)
+
+# Take the absolute value of each loading score
+pc1_loadings_abs = pc1_loadings.abs()
+
+# Sort and select the 10 genes with the highest absolute loading scores
+top_10_pc1_loadings = pc1_loadings_abs.nlargest(10)
+
+# Print the top 10 genes and their absolute loading scores
+print("Top 10 genes by absolute PC1 loading score age:")
+print(top_10_pc1_loadings)
